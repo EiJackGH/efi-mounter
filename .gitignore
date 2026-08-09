@@ -1,0 +1,18 @@
+# macOS System Files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Editor & IDE Directories
+.vscode/
+.idea/
+*.swp
+*~
+*.bak
+
+# Execution & Log Artifacts
+*.log
+*.tmp
