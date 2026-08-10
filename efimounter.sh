@@ -6,52 +6,58 @@
 
 set -e
 
+# Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
-NC='\033[0m'
+NC='\033[0m' # No Color
 
 verify_osx_version() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
-        echo -e "${RED}❌ Error: This script is intended for OS X / macOS only.${NC}"
+        echo -e "${RED}Error: This script is intended for OS X / macOS only.${NC}"
+        exit 1
+    fi
+}
+
+validate_disk_identifier() {
+    local DISK="$1"
+    if [[ ! "$DISK" =~ ^disk[0-9]+s[0-9]+$ ]]; then
+        echo -e "${RED}Error: Invalid disk identifier format '$DISK'. Expected format: diskXsY (e.g., disk0s1).${NC}"
         exit 1
     fi
 }
 
 list_efi_partitions() {
-    echo -e "${CYAN}🔍 Scanning for EFI Partitions...${NC}\n"
+    echo -e "${CYAN}[INFO] Scanning for EFI Partitions...${NC}\n"
     diskutil list | grep -E "(TYPE NAME|EFI)" || true
     echo ""
 }
 
 auto_mount_primary_efi() {
-    echo -e "${CYAN}🔍 Auto-detecting primary boot drive EFI partition...${NC}"
+    echo -e "${CYAN}[INFO] Auto-detecting primary boot drive EFI partition...${NC}"
 
-    # Get root filesystem disk node (e.g., /dev/disk0s2 -> disk0s2)
     local ROOT_NODE
     ROOT_NODE=$(df / | tail -n1 | awk '{print $1}' | sed 's|/dev/||')
 
-    # Extract parent disk identifier (e.g., disk0s2 -> disk0)
     local PARENT_DISK
     PARENT_DISK=$(echo "$ROOT_NODE" | sed -E 's/s[0-9]+$//')
 
     if [ -z "$PARENT_DISK" ]; then
-        echo -e "${RED}❌ Error: Could not determine primary boot drive.${NC}"
+        echo -e "${RED}Error: Could not determine primary boot drive.${NC}"
         exit 1
     fi
 
-    # Find the EFI partition identifier on the parent disk (e.g., disk0s1)
     local EFI_PARTITION
     EFI_PARTITION=$(diskutil list "$PARENT_DISK" | awk '/EFI/ {print $NF}' | head -n1)
 
     if [ -z "$EFI_PARTITION" ]; then
-        echo -e "${RED}❌ Error: No EFI partition found on primary boot disk (${PARENT_DISK}).${NC}"
+        echo -e "${RED}Error: No EFI partition found on primary boot disk (${PARENT_DISK}).${NC}"
         exit 1
     fi
 
-    echo -e "${GREEN}📍 Primary boot disk: ${PARENT_DISK}${NC}"
-    echo -e "${GREEN}📍 EFI partition target: ${EFI_PARTITION}${NC}"
+    echo -e "${GREEN}[INFO] Primary boot disk: ${PARENT_DISK}${NC}"
+    echo -e "${GREEN}[INFO] EFI partition target: ${EFI_PARTITION}${NC}"
     echo ""
 
     mount_efi "$EFI_PARTITION"
@@ -66,15 +72,17 @@ mount_efi() {
     fi
 
     if [ -z "$TARGET_DISK" ]; then
-        echo -e "${RED}❌ Error: No disk identifier provided.${NC}"
+        echo -e "${RED}Error: No disk identifier provided.${NC}"
         exit 1
     fi
 
-    echo -e "${YELLOW}⚙️ Mounting /dev/${TARGET_DISK}...${NC}"
+    validate_disk_identifier "$TARGET_DISK"
+
+    echo -e "${YELLOW}[INFO] Mounting /dev/${TARGET_DISK}...${NC}"
     if diskutil mount "$TARGET_DISK"; then
-        echo -e "${GREEN}✅ Successfully mounted /dev/${TARGET_DISK} at /Volumes/EFI${NC}"
+        echo -e "${GREEN}[SUCCESS] Successfully mounted /dev/${TARGET_DISK} at /Volumes/EFI${NC}"
     else
-        echo -e "${RED}❌ Failed to mount /dev/${TARGET_DISK}.${NC}"
+        echo -e "${RED}Error: Failed to mount /dev/${TARGET_DISK}.${NC}"
         exit 1
     fi
 }
@@ -88,15 +96,17 @@ unmount_efi() {
     fi
 
     if [ -z "$TARGET_DISK" ]; then
-        echo -e "${RED}❌ Error: No disk identifier provided.${NC}"
+        echo -e "${RED}Error: No disk identifier provided.${NC}"
         exit 1
     fi
 
-    echo -e "${YELLOW}⚙️ Unmounting /dev/${TARGET_DISK}...${NC}"
+    validate_disk_identifier "$TARGET_DISK"
+
+    echo -e "${YELLOW}[INFO] Unmounting /dev/${TARGET_DISK}...${NC}"
     if diskutil unmount "$TARGET_DISK"; then
-        echo -e "${GREEN}✅ Successfully unmounted /dev/${TARGET_DISK}${NC}"
+        echo -e "${GREEN}[SUCCESS] Successfully unmounted /dev/${TARGET_DISK}.${NC}"
     else
-        echo -e "${RED}❌ Failed to unmount /dev/${TARGET_DISK}.${NC}"
+        echo -e "${RED}Error: Failed to unmount /dev/${TARGET_DISK}.${NC}"
         exit 1
     fi
 }
@@ -153,11 +163,11 @@ case "$1" in
             3) mount_efi ;;
             4) unmount_efi ;;
             5) exit 0 ;;
-            *) echo -e "${RED}Invalid choice.${NC}" ;;
+            *) echo -e "${RED}Error: Invalid menu choice.${NC}" ;;
         esac
         ;;
     *)
-        echo -e "${RED}Unknown option: $1${NC}"
+        echo -e "${RED}Error: Unknown option '$1'.${NC}"
         show_help
         exit 1
         ;;
