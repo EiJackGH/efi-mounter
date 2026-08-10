@@ -32,6 +32,7 @@ raise_error() {
         ERR_300) echo -e "${RED}Boot Drive Detection Failure: Unable to resolve root filesystem '/' device node.${NC}" >&2 ;;
         ERR_301) echo -e "${RED}Parent Disk Parse Error: Unable to extract parent disk ID from node '$DETAILS'.${NC}" >&2 ;;
         ERR_302) echo -e "${RED}Missing EFI Slice: No valid EFI partition slice found on parent disk '$DETAILS'.${NC}" >&2 ;;
+        ERR_303) echo -e "${RED}System Disk Restriction: A system disk is limited.${NC}" >&2 ;;
         ERR_400) echo -e "${RED}Already Mounted: Partition '/dev/$DETAILS' is already mounted in /Volumes.${NC}" >&2 ;;
         ERR_401) echo -e "${RED}Mount Operation Failed: 'diskutil mount $DETAILS' returned non-zero exit status.${NC}" >&2 ;;
         ERR_402) echo -e "${RED}Permission Denied: Insufficient privilege to mount '/dev/$DETAILS'. Sudo may be required.${NC}" >&2 ;;
@@ -70,6 +71,11 @@ validate_disk_identifier() {
 
     if ! diskutil info "$DISK" >/dev/null 2>&1; then
         raise_error "ERR_202" "$DISK"
+    fi
+
+    # Check for restricted system disk operations
+    if diskutil info "$DISK" 2>/dev/null | grep -qi "System Volume: Yes"; then
+        raise_error "ERR_303"
     fi
 }
 
@@ -172,7 +178,7 @@ unmount_efi() {
 
 show_help() {
     echo -e "${CYAN}OS X Yosemite EFI Mounter Utility${NC}"
-    echo "Usage: ./efi-mounter [option] [disk_identifier]"
+    echo "Usage: ./efimounter.sh [option] [disk_identifier]"
     echo ""
     echo "Options:"
     echo "  -a, --auto           Auto-detect and mount primary boot disk EFI"
