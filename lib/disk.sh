@@ -15,6 +15,30 @@ verify_environment() {
     command -v sed >/dev/null 2>&1 || raise_error "ERR_103"
 }
 
+check_opencore_environment() {
+    local TARGET_DISK="$1"
+    local OC_FOUND=0
+
+    # 1. Inspect NVRAM variables for active OpenCore boot session
+    if nvram -p 2>/dev/null | grep -qi "opencore-version"; then
+        echo -e "${YELLOW}[WARN] Active OpenCore NVRAM signature detected.${NC}"
+        OC_FOUND=1
+    fi
+
+    # 2. Inspect target partition mount point for OpenCore directory structure
+    if [ -n "$TARGET_DISK" ]; then
+        local MOUNT_PT
+        MOUNT_PT=$(diskutil info "$TARGET_DISK" 2>/dev/null | awk -F': ' '/Mount Point/ {print $2}' | xargs)
+        
+        if [ -n "$MOUNT_PT" ] && [ -d "${MOUNT_PT}/EFI/OC" ]; then
+            echo -e "${YELLOW}[WARN] OpenCore filesystem structure found at ${MOUNT_PT}/EFI/OC${NC}"
+            OC_FOUND=1
+        fi
+    fi
+
+    return $OC_FOUND
+}
+
 validate_disk_identifier() {
     local DISK="$1"
 
@@ -32,6 +56,11 @@ validate_disk_identifier() {
 
     if diskutil info "$DISK" 2>/dev/null | grep -qi "System Volume: Yes"; then
         raise_error "ERR_303"
+    fi
+
+    # Perform OpenCore checks
+    if check_opencore_environment "$DISK"; then
+        echo -e "${YELLOW}[INFO] Running in OpenCore-managed environment...${NC}"
     fi
 }
 
@@ -92,7 +121,12 @@ mount_efi() {
     
     local MOUNT_OUT
     if MOUNT_OUT=$(diskutil mount "$TARGET_DISK" 2>&1); then
-        echo -e "${GREEN}[SUCCESS] Successfully mounted /dev/${TARGET_DISK} at /Volumes/EFI${NC}"
+        echo -e "${GREEN}[SUCCESS] Successfully mounted /dev/${TARGET_DISK}${NC}"
+        
+        # Post-mount OpenCore check
+        if [ -d "/Volumes/EFI/EFI/OC" ]; then
+            echo -e "${CYAN}[INFO] OpenCore bootloader detected on mounted volume /Volumes/EFI/EFI/OC${NC}"
+        fi
     else
         if echo "$MOUNT_OUT" | grep -qi "permission"; then
             raise_error "ERR_402" "$TARGET_DISK"
