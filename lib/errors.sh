@@ -30,6 +30,7 @@ raise_error() {
         ERR_301) echo -e "${RED}Parent Disk Parse Error: Unable to extract parent disk ID from node '$DETAILS'.${NC}" >&2 ;;
         ERR_302) echo -e "${RED}Missing EFI Slice: No valid EFI partition slice found on parent disk '$DETAILS'.${NC}" >&2 ;;
         ERR_303) echo -e "${RED}System Disk Restriction: A system disk is limited.${NC}" >&2 ;;
+        ERR_304) echo -e "${RED}OpenCore Checks Detected: Active OpenCore bootloader environment or partition structure detected.${NC}" >&2 ;;
         ERR_400) echo -e "${RED}Already Mounted: Partition '/dev/$DETAILS' is already mounted in /Volumes.${NC}" >&2 ;;
         ERR_401) echo -e "${RED}Mount Operation Failed: 'diskutil mount $DETAILS' returned non-zero exit status.${NC}" >&2 ;;
         ERR_402) echo -e "${RED}Permission Denied: Insufficient privilege to mount '/dev/$DETAILS'. Sudo may be required.${NC}" >&2 ;;
