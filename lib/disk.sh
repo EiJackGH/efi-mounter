@@ -13,30 +13,13 @@ verify_environment() {
     command -v df >/dev/null 2>&1 || raise_error "ERR_102"
     command -v awk >/dev/null 2>&1 || raise_error "ERR_103"
     command -v sed >/dev/null 2>&1 || raise_error "ERR_103"
+    command -v nvram >/dev/null 2>&1 || raise_error "ERR_104"
 }
 
-check_opencore_environment() {
-    local TARGET_DISK="$1"
-    local OC_FOUND=0
-
-    # 1. Inspect NVRAM variables for active OpenCore boot session
-    if nvram -p 2>/dev/null | grep -qi "opencore-version"; then
-        echo -e "${YELLOW}[WARN] Active OpenCore NVRAM signature detected.${NC}"
-        OC_FOUND=1
+check_root_privinedges() {
+    if [ "$EUID" -ne 0 ]; then
+        raise_error "ERR_105"
     fi
-
-    # 2. Inspect target partition mount point for OpenCore directory structure
-    if [ -n "$TARGET_DISK" ]; then
-        local MOUNT_PT
-        MOUNT_PT=$(diskutil info "$TARGET_DISK" 2>/dev/null | awk -F': ' '/Mount Point/ {print $2}' | xargs)
-        
-        if [ -n "$MOUNT_PT" ] && [ -d "${MOUNT_PT}/EFI/OC" ]; then
-            echo -e "${YELLOW}[WARN] OpenCore filesystem structure found at ${MOUNT_PT}/EFI/OC${NC}"
-            OC_FOUND=1
-        fi
-    fi
-
-    return $OC_FOUND
 }
 
 validate_disk_identifier() {
@@ -50,26 +33,41 @@ validate_disk_identifier() {
         raise_error "ERR_201" "$DISK"
     fi
 
-    if ! diskutil info "$DISK" >/dev/null 2>&1; then
+    local DISK_INFO
+    if ! DISK_INFO=$(diskutil info "$DISK" 2>/dev/null); then
         raise_error "ERR_202" "$DISK"
     fi
 
-    if diskutil info "$DISK" 2>/dev/null | grep -qi "System Volume: Yes"; then
+    # Check for non-EFI filesystem types (HFS+, APFS)
+    if echo "$DISK_INFO" | grep -qiE "Type \(Bundle\):[[:space:]]+(hfs|apfs)"; then
+        raise_error "ERR_204" "$DISK"
+    fi
+
+    # Verify partition size bounds (between ~100MB and ~1GB)
+    local SIZE_BYTES
+    SIZE_BYTES=$(echo "$DISK_INFO" | awk -F': ' '/Disk Size|Total Size/ {print $2}' | grep -oE '[0-9]+ Bytes' | awk '{print $1}')
+    if [ -n "$SIZE_BYTES" ]; then
+        if [ "$SIZE_BYTES" -lt 100000000 ] || [ "$SIZE_BYTES" -gt 1073741824 ]; then
+            echo -e "${YELLOW}[WARN] Non-standard partition size detected on $DISK (${SIZE_BYTES} bytes).${NC}"
+        fi
+    fi
+
+    if echo "$DISK_INFO" | grep -qi "System Volume: Yes"; then
         raise_error "ERR_303"
     fi
 
-    # Perform OpenCore checks
     if check_opencore_environment "$DISK"; then
         echo -e "${YELLOW}[INFO] Running in OpenCore-managed environment...${NC}"
     fi
 }
 
-list_efi_partitions() {
-    echo -e "${CYAN}[INFO] Scanning for EFI Partitions...${NC}\n"
-    if ! diskutil list | grep -E "(TYPE NAME|EFI)"; then
-        echo -e "${YELLOW}[WARN] No partitions matching type 'EFI' were detected.${NC}"
+verify_filesystem_integrity() {
+    local TARGET_DISK="$1"
+    echo -e "${CYAN}[INFO] Checking filesystem integrity on /dev/${TARGET_DISK}...${NC}"
+    
+    if ! fsck_msdos -n "/dev/r${TARGET_DISK}" >/dev/null 2>&1; then
+        raise_error "ERR_600" "$TARGET_DISK"
     fi
-    echo ""
 }
 
 auto_mount_primary_efi() {
@@ -89,77 +87,22 @@ auto_mount_primary_efi() {
         raise_error "ERR_301" "$ROOT_NODE"
     fi
 
+    # Check for multiple EFI slices
+    local EFI_COUNT
+    EFI_COUNT=$(diskutil list "$PARENT_DISK" 2>/dev/null | grep -c "EFI")
+
+    if [ "$EFI_COUNT" -eq 0 ]; then
+        raise_error "ERR_302" "$PARENT_DISK"
+    elif [ "$EFI_COUNT" -gt 1 ]; then
+        raise_error "ERR_305" "$PARENT_DISK"
+    fi
+
     local EFI_PARTITION
     EFI_PARTITION=$(diskutil list "$PARENT_DISK" 2>/dev/null | awk '/EFI/ {print $NF}' | head -n1)
-
-    if [ -z "$EFI_PARTITION" ]; then
-        raise_error "ERR_302" "$PARENT_DISK"
-    fi
 
     echo -e "${GREEN}[INFO] Primary boot disk identified: ${PARENT_DISK}${NC}"
     echo -e "${GREEN}[INFO] Primary EFI partition target: ${EFI_PARTITION}${NC}"
     echo ""
 
     mount_efi "$EFI_PARTITION"
-}
-
-mount_efi() {
-    local TARGET_DISK="$1"
-
-    if [ -z "$TARGET_DISK" ]; then
-        list_efi_partitions
-        read -p "Enter disk identifier to MOUNT (e.g., disk0s1): " TARGET_DISK
-    fi
-
-    validate_disk_identifier "$TARGET_DISK"
-
-    if diskutil info "$TARGET_DISK" | grep -q "Mount Point:[[:space:]]*/"; then
-        raise_error "ERR_400" "$TARGET_DISK"
-    fi
-
-    echo -e "${YELLOW}[INFO] Attempting to mount /dev/${TARGET_DISK}...${NC}"
-    
-    local MOUNT_OUT
-    if MOUNT_OUT=$(diskutil mount "$TARGET_DISK" 2>&1); then
-        echo -e "${GREEN}[SUCCESS] Successfully mounted /dev/${TARGET_DISK}${NC}"
-        
-        # Post-mount OpenCore check
-        if [ -d "/Volumes/EFI/EFI/OC" ]; then
-            echo -e "${CYAN}[INFO] OpenCore bootloader detected on mounted volume /Volumes/EFI/EFI/OC${NC}"
-        fi
-    else
-        if echo "$MOUNT_OUT" | grep -qi "permission"; then
-            raise_error "ERR_402" "$TARGET_DISK"
-        else
-            raise_error "ERR_401" "$TARGET_DISK"
-        fi
-    fi
-}
-
-unmount_efi() {
-    local TARGET_DISK="$1"
-
-    if [ -z "$TARGET_DISK" ]; then
-        list_efi_partitions
-        read -p "Enter disk identifier to UNMOUNT (e.g., disk0s1): " TARGET_DISK
-    fi
-
-    validate_disk_identifier "$TARGET_DISK"
-
-    if ! diskutil info "$TARGET_DISK" | grep -q "Mount Point:[[:space:]]*/"; then
-        raise_error "ERR_500" "$TARGET_DISK"
-    fi
-
-    echo -e "${YELLOW}[INFO] Attempting to unmount /dev/${TARGET_DISK}...${NC}"
-    
-    local UNMOUNT_OUT
-    if UNMOUNT_OUT=$(diskutil unmount "$TARGET_DISK" 2>&1); then
-        echo -e "${GREEN}[SUCCESS] Successfully unmounted /dev/${TARGET_DISK}.${NC}"
-    else
-        if echo "$UNMOUNT_OUT" | grep -qi "busy"; then
-            raise_error "ERR_502" "$TARGET_DISK"
-        else
-            raise_error "ERR_501" "$TARGET_DISK"
-        fi
-    fi
 }
