@@ -16,7 +16,7 @@ verify_environment() {
     command -v nvram >/dev/null 2>&1 || raise_error "ERR_104"
 }
 
-check_root_privinedges() {
+check_root_privileges() {
     if [ "$EUID" -ne 0 ]; then
         raise_error "ERR_105"
     fi
@@ -38,36 +38,88 @@ validate_disk_identifier() {
         raise_error "ERR_202" "$DISK"
     fi
 
-    # Check for non-EFI filesystem types (HFS+, APFS)
     if echo "$DISK_INFO" | grep -qiE "Type \(Bundle\):[[:space:]]+(hfs|apfs)"; then
         raise_error "ERR_204" "$DISK"
-    fi
-
-    # Verify partition size bounds (between ~100MB and ~1GB)
-    local SIZE_BYTES
-    SIZE_BYTES=$(echo "$DISK_INFO" | awk -F': ' '/Disk Size|Total Size/ {print $2}' | grep -oE '[0-9]+ Bytes' | awk '{print $1}')
-    if [ -n "$SIZE_BYTES" ]; then
-        if [ "$SIZE_BYTES" -lt 100000000 ] || [ "$SIZE_BYTES" -gt 1073741824 ]; then
-            echo -e "${YELLOW}[WARN] Non-standard partition size detected on $DISK (${SIZE_BYTES} bytes).${NC}"
-        fi
     fi
 
     if echo "$DISK_INFO" | grep -qi "System Volume: Yes"; then
         raise_error "ERR_303"
     fi
-
-    if check_opencore_environment "$DISK"; then
-        echo -e "${YELLOW}[INFO] Running in OpenCore-managed environment...${NC}"
-    fi
 }
 
-verify_filesystem_integrity() {
-    local TARGET_DISK="$1"
-    echo -e "${CYAN}[INFO] Checking filesystem integrity on /dev/${TARGET_DISK}...${NC}"
-    
-    if ! fsck_msdos -n "/dev/r${TARGET_DISK}" >/dev/null 2>&1; then
-        raise_error "ERR_600" "$TARGET_DISK"
+check_opencore_environment() {
+    local TARGET_DISK="${1:-disk0s1}"
+    if nvram -p 2>/dev/null | grep -q "4D1FDA02-38C7-4A6A-9CC6-4BCCD8EA63C0"; then
+        return 0
     fi
+    return 1
+}
+
+mount_efi() {
+    local TARGET_DISK="$1"
+
+    if [ -z "$TARGET_DISK" ]; then
+        read -p "Enter EFI partition identifier (e.g., disk0s1): " TARGET_DISK
+    fi
+
+    validate_disk_identifier "$TARGET_DISK"
+
+    # Check if already mounted
+    if diskutil info "$TARGET_DISK" 2>/dev/null | grep -q "Mount Point:[[:space:]]*/"; then
+        raise_error "ERR_400" "$TARGET_DISK"
+    fi
+
+    # Check for target directory collision (/Volumes/EFI)
+    if [ -d "/Volumes/EFI" ] && [ "$(ls -A /Volumes/EFI 2>/dev/null)" ]; then
+        raise_error "ERR_403"
+    fi
+
+    echo -e "${CYAN}[INFO] Attempting to mount /dev/${TARGET_DISK}...${NC}"
+
+    # Perform mount operation and capture error details
+    local MOUNT_OUTPUT
+    if ! MOUNT_OUTPUT=$(diskutil mount "$TARGET_DISK" 2>&1); then
+        if echo "$MOUNT_OUTPUT" | grep -qiE "permission|denied|root"; then
+            raise_error "ERR_402" "$TARGET_DISK"
+        elif echo "$MOUNT_OUTPUT" | grep -qiE "failed to mount|corrupt|damaged|unable to mount"; then
+            echo -e "${RED}[WARN] Mount operation reported physical disk/filesystem error.${NC}" >&2
+            raise_error "ERR_404" "$TARGET_DISK"
+        else
+            raise_error "ERR_401" "$TARGET_DISK"
+        fi
+    fi
+
+    echo -e "${GREEN}[SUCCESS] EFI partition /dev/${TARGET_DISK} mounted successfully.${NC}"
+}
+
+unmount_efi() {
+    local TARGET_DISK="$1"
+
+    if [ -z "$TARGET_DISK" ]; then
+        read -p "Enter EFI partition identifier to unmount (e.g., disk0s1): " TARGET_DISK
+    fi
+
+    validate_disk_identifier "$TARGET_DISK"
+
+    if ! diskutil info "$TARGET_DISK" 2>/dev/null | grep -q "Mount Point:[[:space:]]*/"; then
+        raise_error "ERR_500" "$TARGET_DISK"
+    fi
+
+    echo -e "${CYAN}[INFO] Unmounting /dev/${TARGET_DISK}...${NC}"
+
+    if ! diskutil unmount "$TARGET_DISK" >/dev/null 2>&1; then
+        echo -e "${YELLOW}[WARN] Normal unmount failed. Trying force unmount...${NC}"
+        if ! diskutil unmount force "$TARGET_DISK" >/dev/null 2>&1; then
+            raise_error "ERR_501" "$TARGET_DISK"
+        fi
+    fi
+
+    echo -e "${GREEN}[SUCCESS] EFI partition /dev/${TARGET_DISK} unmounted successfully.${NC}"
+}
+
+list_efi_partitions() {
+    echo -e "${CYAN}[INFO] Scanning system for EFI partitions...${NC}\n"
+    diskutil list | grep -E "TYPE|EFI" || echo "No EFI partitions found."
 }
 
 auto_mount_primary_efi() {
@@ -87,7 +139,6 @@ auto_mount_primary_efi() {
         raise_error "ERR_301" "$ROOT_NODE"
     fi
 
-    # Check for multiple EFI slices
     local EFI_COUNT
     EFI_COUNT=$(diskutil list "$PARENT_DISK" 2>/dev/null | grep -c "EFI")
 
