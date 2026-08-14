@@ -27,6 +27,7 @@ show_help() {
     echo "  -m, --mount <disk>   Mount specified EFI partition (e.g., disk0s1)"
     echo "  -u, --unmount <disk> Unmount specified EFI partition"
     echo "  -s, --status [disk]  Display status & bootloader details for EFI target(s)"
+    echo "  -f, --first-aid <disk> Run First Aid (verify & repair) on specified EFI partition"
     echo "  -o, --opencore       Run OpenCore bootloader environment check"
     echo "  -h, --help           Display this help menu"
 }
@@ -53,6 +54,9 @@ case "$1" in
             get_all_efi_status
         fi
         ;;
+    -f|--first-aid)
+        first_aid_efi "$2"
+        ;;
     -o|--opencore)
         echo -e "${CYAN}[INFO] Executing OpenCore Environment Check...${NC}"
         if check_opencore_environment "$2"; then
@@ -74,9 +78,10 @@ case "$1" in
         echo "4) Unmount an EFI Partition"
         echo "5) Check EFI Partition Status"
         echo "6) Run OpenCore Check"
-        echo "7) Exit"
+        echo "7) Run EFI First Aid"
+        echo "8) Exit"
         echo ""
-        read -p "Select option [1-7]: " CHOICE
+        read -p "Select option [1-8]: " CHOICE
 
         case "$CHOICE" in
             1) auto_mount_primary_efi ;;
@@ -85,7 +90,8 @@ case "$1" in
             4) unmount_efi ;;
             5) get_all_efi_status ;;
             6) check_opencore_environment ;;
-            7) exit 0 ;;
+            7) first_aid_efi ;;
+            8) exit 0 ;;
             *) raise_error "ERR_901" "$CHOICE" ;;
         esac
         ;;

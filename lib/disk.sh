@@ -188,3 +188,117 @@ auto_mount_primary_efi() {
 
     mount_efi "$EFI_PARTITION"
 }
+
+first_aid_efi() {
+    local TARGET_DISK="$1"
+
+    if [ -z "$TARGET_DISK" ]; then
+        list_efi_partitions
+        if [ -t 0 ]; then
+            read -p "Enter EFI partition identifier for First Aid (e.g., disk0s1): " TARGET_DISK
+        else
+            raise_error "ERR_200"
+        fi
+    fi
+
+    validate_disk_identifier "$TARGET_DISK"
+    check_root_privileges
+
+    echo -e "${CYAN}[INFO] Starting EFI First Aid for /dev/${TARGET_DISK}...${NC}"
+
+    # Check if mounted
+    local IS_MOUNTED=false
+    local MOUNT_PT
+    MOUNT_PT=$(diskutil info "$TARGET_DISK" 2>/dev/null | awk -F': ' '/Mount Point/ {print $2}' | xargs)
+
+    if [ -n "$MOUNT_PT" ]; then
+        IS_MOUNTED=true
+        echo -e "${YELLOW}[WARN] Partition /dev/${TARGET_DISK} is currently mounted at ${MOUNT_PT}.${NC}"
+        echo -e "${YELLOW}[WARN] For a safe verification/repair, the partition should be unmounted.${NC}"
+
+        local UNMOUNT_CHOICE="n"
+        if [ "$AUTO_REPAIR" = true ]; then
+            UNMOUNT_CHOICE="y"
+        elif [ -t 0 ]; then
+            read -p "Would you like to unmount /dev/${TARGET_DISK} now? (y/n): " UNMOUNT_CHOICE
+        fi
+
+        if [[ "$UNMOUNT_CHOICE" =~ ^[Yy]$ ]]; then
+            echo -e "${CYAN}[INFO] Unmounting /dev/${TARGET_DISK}...${NC}"
+            if ! diskutil unmount "$TARGET_DISK" >/dev/null 2>&1; then
+                echo -e "${YELLOW}[WARN] Normal unmount failed. Trying force unmount...${NC}"
+                if ! diskutil unmount force "$TARGET_DISK" >/dev/null 2>&1; then
+                    raise_error "ERR_501" "$TARGET_DISK"
+                fi
+            fi
+            echo -e "${GREEN}[SUCCESS] /dev/${TARGET_DISK} unmounted successfully.${NC}"
+            IS_MOUNTED=false
+        else
+            echo -e "${YELLOW}[WARN] Proceeding with verification on a mounted filesystem. Results might be unreliable.${NC}"
+        fi
+    fi
+
+    echo -e "${CYAN}[INFO] Verifying filesystem integrity on /dev/r${TARGET_DISK}...${NC}"
+
+    # fsck_msdos -n performs read-only checks.
+    if fsck_msdos -n "/dev/r${TARGET_DISK}" >/dev/null 2>&1; then
+        echo -e "${GREEN}[SUCCESS] Filesystem on /dev/${TARGET_DISK} is CLEAN and healthy.${NC}"
+
+        # Remount if originally mounted
+        if [ "$IS_MOUNTED" = false ] && [ -n "$MOUNT_PT" ]; then
+            local REMOUNT_CHOICE="n"
+            if [ "$AUTO_REPAIR" = true ]; then
+                REMOUNT_CHOICE="y"
+            elif [ -t 0 ]; then
+                read -p "Would you like to remount /dev/${TARGET_DISK}? (y/n): " REMOUNT_CHOICE
+            fi
+
+            if [[ "$REMOUNT_CHOICE" =~ ^[Yy]$ ]]; then
+                if diskutil mount "$TARGET_DISK" >/dev/null 2>&1; then
+                    echo -e "${GREEN}[SUCCESS] /dev/${TARGET_DISK} remounted successfully.${NC}"
+                else
+                    echo -e "${YELLOW}[WARN] Failed to remount /dev/${TARGET_DISK}.${NC}"
+                fi
+            fi
+        fi
+        return 0
+    else
+        echo -e "${YELLOW}[WARN] Filesystem corruption or dirty bit detected on /dev/${TARGET_DISK}.${NC}"
+
+        local REPAIR_CHOICE="n"
+        if [ "$AUTO_REPAIR" = true ]; then
+            REPAIR_CHOICE="y"
+        elif [ -t 0 ]; then
+            read -p "Would you like to attempt automated repair? (y/n): " REPAIR_CHOICE
+        fi
+
+        if [[ "$REPAIR_CHOICE" =~ ^[Yy]$ ]]; then
+            if repair_efi "$TARGET_DISK"; then
+                echo -e "${GREEN}[SUCCESS] First Aid completed: filesystem repaired successfully.${NC}"
+
+                # Remount if originally mounted
+                if [ "$IS_MOUNTED" = false ] && [ -n "$MOUNT_PT" ]; then
+                    local REMOUNT_CHOICE="n"
+                    if [ "$AUTO_REPAIR" = true ]; then
+                        REMOUNT_CHOICE="y"
+                    elif [ -t 0 ]; then
+                        read -p "Would you like to remount /dev/${TARGET_DISK}? (y/n): " REMOUNT_CHOICE
+                    fi
+
+                    if [[ "$REMOUNT_CHOICE" =~ ^[Yy]$ ]]; then
+                        if diskutil mount "$TARGET_DISK" >/dev/null 2>&1; then
+                            echo -e "${GREEN}[SUCCESS] /dev/${TARGET_DISK} remounted successfully.${NC}"
+                        else
+                            echo -e "${YELLOW}[WARN] Failed to remount /dev/${TARGET_DISK}.${NC}"
+                        fi
+                    fi
+                fi
+                return 0
+            else
+                raise_error "ERR_600" "$TARGET_DISK"
+            fi
+        else
+            raise_error "ERR_600" "$TARGET_DISK"
+        fi
+    fi
+}

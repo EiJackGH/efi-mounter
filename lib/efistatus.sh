@@ -107,3 +107,11 @@ scan_all_efi_status() {
     done
     echo ""
 }
+
+get_single_efi_status() {
+    get_efi_partition_status "$@"
+}
+
+get_all_efi_status() {
+    scan_all_efi_status "$@"
+}

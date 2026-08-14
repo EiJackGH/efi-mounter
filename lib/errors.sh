@@ -45,7 +45,7 @@ raise_error() {
         ERR_502) echo -e "${RED}Force Unmount Required: Resource busy on '/dev/$DETAILS'. Terminate accessing applications.${NC}" >&2 ;;
         ERR_600) echo -e "${RED}Filesystem Corruption: Dirty bit or corrupted allocation table detected on '/dev/$DETAILS'. Run fsck_msdos.${NC}" >&2 ;;
         ERR_900) echo -e "${RED}Invalid CLI Argument: Unknown option '$DETAILS'. Run with -h for help.${NC}" >&2 ;;
-        ERR_901) echo -e "${RED}Invalid Menu Selection: Option '$DETAILS' is out of bounds [1-7].${NC}" >&2 ;;
+        ERR_901) echo -e "${RED}Invalid Menu Selection: Option '$DETAILS' is out of bounds [1-8].${NC}" >&2 ;;
         *)       echo -e "${RED}Unspecified Critical Execution Error: $DETAILS${NC}" >&2 ;;
     esac
 
