@@ -39,12 +39,13 @@ raise_error() {
         ERR_401) echo -e "${RED}Mount Operation Failed: 'diskutil mount $DETAILS' returned non-zero exit status.${NC}" >&2 ;;
         ERR_402) echo -e "${RED}Permission Denied: Insufficient privilege to mount '/dev/$DETAILS'. Sudo may be required.${NC}" >&2 ;;
         ERR_403) echo -e "${RED}Mount Point Collision: Target mount directory '/Volumes/EFI' already exists and is not empty.${NC}" >&2 ;;
+        ERR_404) echo -e "${RED}Mount Disk Error: There's a problem mounting your disk '$DETAILS'. Check disk state or repair using First Aid.${NC}" >&2 ;;
         ERR_500) echo -e "${RED}Not Mounted: Partition '/dev/$DETAILS' is not currently mounted.${NC}" >&2 ;;
         ERR_501) echo -e "${RED}Unmount Operation Failed: Volume '$DETAILS' may be busy or locked by another process.${NC}" >&2 ;;
         ERR_502) echo -e "${RED}Force Unmount Required: Resource busy on '/dev/$DETAILS'. Terminate accessing applications.${NC}" >&2 ;;
         ERR_600) echo -e "${RED}Filesystem Corruption: Dirty bit or corrupted allocation table detected on '/dev/$DETAILS'. Run fsck_msdos.${NC}" >&2 ;;
         ERR_900) echo -e "${RED}Invalid CLI Argument: Unknown option '$DETAILS'. Run with -h for help.${NC}" >&2 ;;
-        ERR_901) echo -e "${RED}Invalid Menu Selection: Option '$DETAILS' is out of bounds [1-6].${NC}" >&2 ;;
+        ERR_901) echo -e "${RED}Invalid Menu Selection: Option '$DETAILS' is out of bounds [1-7].${NC}" >&2 ;;
         *)       echo -e "${RED}Unspecified Critical Execution Error: $DETAILS${NC}" >&2 ;;
     esac
 
