@@ -4,6 +4,8 @@
 # Path: lib/disk.sh
 # =====================================================================
 
+AUTO_REPAIR=${AUTO_REPAIR:-false}
+
 verify_environment() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
         raise_error "ERR_100"
@@ -55,6 +57,27 @@ check_opencore_environment() {
     return 1
 }
 
+repair_efi() {
+    local TARGET_DISK="$1"
+
+    if [ -z "$TARGET_DISK" ]; then
+        read -p "Enter EFI partition identifier to repair (e.g., disk0s1): " TARGET_DISK
+    fi
+
+    validate_disk_identifier "$TARGET_DISK"
+    check_root_privileges
+
+    echo -e "${CYAN}[INFO] Running fsck_msdos automated repair on /dev/r${TARGET_DISK}...${NC}"
+
+    if fsck_msdos -fy "/dev/r${TARGET_DISK}"; then
+        echo -e "${GREEN}[SUCCESS] Filesystem repair completed successfully for /dev/${TARGET_DISK}.${NC}"
+        return 0
+    else
+        echo -e "${RED}[ERROR] fsck_msdos failed to resolve filesystem corruption on /dev/${TARGET_DISK}.${NC}" >&2
+        return 1
+    fi
+}
+
 mount_efi() {
     local TARGET_DISK="$1"
 
@@ -76,13 +99,21 @@ mount_efi() {
 
     echo -e "${CYAN}[INFO] Attempting to mount /dev/${TARGET_DISK}...${NC}"
 
-    # Perform mount operation and capture error details
     local MOUNT_OUTPUT
     if ! MOUNT_OUTPUT=$(diskutil mount "$TARGET_DISK" 2>&1); then
         if echo "$MOUNT_OUTPUT" | grep -qiE "permission|denied|root"; then
             raise_error "ERR_402" "$TARGET_DISK"
         elif echo "$MOUNT_OUTPUT" | grep -qiE "failed to mount|corrupt|damaged|unable to mount"; then
-            echo -e "${RED}[WARN] Mount operation reported physical disk/filesystem error.${NC}" >&2
+            if [ "$AUTO_REPAIR" = true ]; then
+                echo -e "${YELLOW}[WARN] Mount error encountered (ERR_404). Triggering automated filesystem repair...${NC}"
+                if repair_efi "$TARGET_DISK"; then
+                    echo -e "${CYAN}[INFO] Retrying mount operation for /dev/${TARGET_DISK}...${NC}"
+                    if diskutil mount "$TARGET_DISK" >/dev/null 2>&1; then
+                        echo -e "${GREEN}[SUCCESS] EFI partition /dev/${TARGET_DISK} repaired and mounted successfully.${NC}"
+                        return 0
+                    fi
+                fi
+            fi
             raise_error "ERR_404" "$TARGET_DISK"
         else
             raise_error "ERR_401" "$TARGET_DISK"
