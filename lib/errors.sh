@@ -23,6 +23,7 @@ raise_error() {
         ERR_103) echo -e "${RED}Missing System Dependency: 'awk' or 'sed' text processors missing.${NC}" >&2 ;;
         ERR_104) echo -e "${RED}Missing System Dependency: 'nvram' binary not accessible for bootloader probing.${NC}" >&2 ;;
         ERR_105) echo -e "${RED}Privilege Escalation Required: Operation requires superuser access. Rerun with 'sudo'.${NC}" >&2 ;;
+        ERR_106) echo -e "${RED}SIP Restriction: System Integrity Protection blocks NVRAM or raw disk access.${NC}" >&2 ;;
         ERR_200) echo -e "${RED}Null Parameter: No disk identifier provided.${NC}" >&2 ;;
         ERR_201) echo -e "${RED}Invalid Identifier Format: Target '$DETAILS' does not match format 'diskXsY' (e.g., disk0s1).${NC}" >&2 ;;
         ERR_202) echo -e "${RED}Device Not Found: Disk node '/dev/$DETAILS' does not exist in system hardware tree.${NC}" >&2 ;;

@@ -6,6 +6,16 @@
 
 AUTO_REPAIR=${AUTO_REPAIR:-false}
 
+check_sip_status() {
+    if command -v csrutil >/dev/null 2>&1; then
+        local SIP_STATUS
+        SIP_STATUS=$(csrutil status 2>/dev/null)
+        if echo "$SIP_STATUS" | grep -qiE "status:[[:space:]]*enabled|nvram.*enabled|raw disk.*enabled"; then
+            raise_error "ERR_106"
+        fi
+    fi
+}
+
 verify_environment() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
         raise_error "ERR_100"
@@ -16,6 +26,8 @@ verify_environment() {
     command -v awk >/dev/null 2>&1 || raise_error "ERR_103"
     command -v sed >/dev/null 2>&1 || raise_error "ERR_103"
     command -v nvram >/dev/null 2>&1 || raise_error "ERR_104"
+
+    check_sip_status
 }
 
 check_root_privileges() {
